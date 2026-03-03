@@ -26,9 +26,9 @@ train_idx = indices[:train_end]
 val_idx = indices[train_end:val_end]
 test_idx = indices[val_end:]
 
-X_train, y_train = X[train_idx], y[train_idx]
-X_val, y_val = X[val_idx], y[val_idx]
-X_test, y_test = X[test_idx], y[test_idx]
+X_train_num, y_train_num = X[train_idx], y[train_idx]
+X_val_num, y_val_num = X[val_idx], y[val_idx]
+X_test_num, y_test_num = X[test_idx], y[test_idx]
 
 # task 1a
 
@@ -127,15 +127,15 @@ def train(model, optimizer, epochs=200):
     train_acc, val_acc = [], []
 
     for epoch in range(epochs):
-        y_hat = model.forward(X_train)
-        loss = bce_loss(y_train, y_hat)
-        model.backward(y_train)
+        y_hat = model.forward(X_train_num)
+        loss = bce_loss(y_train_num, y_hat)
+        model.backward(y_train_num)
         optimizer.step(model)
-        val_pred = model.forward(X_val)
+        val_pred = model.forward(X_val_num)
         train_loss.append(loss)
-        val_loss.append(bce_loss(y_val, val_pred))
-        train_acc.append(accuracy(y_train, y_hat))
-        val_acc.append(accuracy(y_val, val_pred))
+        val_loss.append(bce_loss(y_val_num, val_pred))
+        train_acc.append(accuracy(y_train_num, y_hat))
+        val_acc.append(accuracy(y_val_num, val_pred))
     return train_loss, val_loss, train_acc, val_acc
 
 # requitred plotting (12 models)
@@ -174,20 +174,38 @@ for depth_name, layers in depth_configs.items():
             plt.legend()
             plt.show()
 
-            train_pred = model.forward(X_train)
-            val_pred = model.forward(X_val)
-            test_pred = model.forward(X_test)
+            train_pred = model.forward(X_train_num)
+            val_pred = model.forward(X_val_num)
+            test_pred = model.forward(X_test_num)
             results.append([
                 depth_name,
                 act,
                 opt,
-                accuracy(y_train,train_pred),
-                accuracy(y_val,val_pred),
-                accuracy(y_test,test_pred),
-                bce_loss(y_train,train_pred),
-                bce_loss(y_val,val_pred),
-                bce_loss(y_test,test_pred)
+                accuracy(y_train_num,train_pred),
+                accuracy(y_val_num,val_pred),
+                accuracy(y_test_num,test_pred),
+                bce_loss(y_train_num,train_pred),
+                bce_loss(y_val_num,val_pred),
+                bce_loss(y_test_num,test_pred)
             ])
+for r in results:
+  depth_name = r[0]
+  activation = r[1]
+  optimizer  = r[2]
+  train_acc  = r[3]
+  val_acc    = r[4]
+  test_acc   = r[5]
+  train_loss = r[6]
+  val_loss   = r[7]
+  test_loss  = r[8]
+  print(f"\nModel: {depth_name} | Activation: {activation} | Optimizer: {optimizer}")
+  print("-"*70)
+  print("Final Training Accuracy   :", round(train_acc,4))
+  print("Final Validation Accuracy :", round(val_acc,4))
+  print("Final Test Accuracy       :", round(test_acc,4))
+  print("Final Training Loss       :", round(train_loss,4))
+  print("Final Validation Loss     :", round(val_loss,4))
+  print("Final Test Loss           :", round(test_loss,4))
 
 # add-on (2 vs 10)
 
@@ -597,36 +615,106 @@ class CNN_WithDropout:
         self.conv.backward(d_relu)
 
 def train_and_evaluate(model, epochs=5, lr=0.01):
+
+    train_loss_hist = []
+    val_loss_hist   = []
+    train_acc_hist  = []
+    val_acc_hist    = []
+
     for epoch in range(epochs):
+
+        total_loss = 0
+        correct = 0
+
         for i in range(len(X_train)):
             X_sample = X_train[i]
             y_sample = y_train[i].reshape(1,1)
+
             if hasattr(model, "dropout"):
                 y_hat = model.forward(X_sample, training=True)
             else:
                 y_hat = model.forward(X_sample)
+
+            loss = - (y_sample*np.log(y_hat+1e-8) +
+                     (1-y_sample)*np.log(1-y_hat+1e-8))
+
+            total_loss += loss.item()
+
+            if (y_hat >= 0.5) == y_sample:
+                correct += 1
+
             model.backward(y_sample)
+
             model.conv.K -= lr * model.conv.dK
             model.conv.b -= lr * model.conv.db
-            model.fc.W -= lr * model.fc.dW
-            model.fc.b -= lr * model.fc.db
-    def evaluate(X_data, y_data):
-        correct = 0
-        total_loss = 0
-        for i in range(len(X_data)):
-            if hasattr(model, "dropout"):
-                y_hat = model.forward(X_data[i], training=False)
-            else:
-                y_hat = model.forward(X_data[i])
+            model.fc.W   -= lr * model.fc.dW
+            model.fc.b   -= lr * model.fc.db
 
-            total_loss += - (y_data[i]*np.log(y_hat+1e-8) +
-                            (1-y_data[i])*np.log(1-y_hat+1e-8))
-            if (y_hat >= 0.5) == y_data[i]:
-                correct += 1
-        return correct/len(X_data), total_loss/len(X_data)
-    train_acc, train_loss = evaluate(X_train, y_train)
-    val_acc, val_loss = evaluate(X_val, y_val)
-    test_acc, test_loss = evaluate(X_test, y_test)
+        train_loss = total_loss / len(X_train)
+        train_acc  = correct / len(X_train)
+
+        val_correct = 0
+        val_loss_total = 0
+
+        for i in range(len(X_val)):
+            if hasattr(model, "dropout"):
+                y_hat = model.forward(X_val[i], training=False)
+            else:
+                y_hat = model.forward(X_val[i])
+
+            loss = - (y_val[i]*np.log(y_hat+1e-8) +
+                     (1-y_val[i])*np.log(1-y_hat+1e-8))
+
+            val_loss_total += loss.item()
+
+            if (y_hat >= 0.5) == y_val[i]:
+                val_correct += 1
+
+        val_loss = val_loss_total / len(X_val)
+        val_acc  = val_correct / len(X_val)
+
+        train_loss_hist.append(train_loss)
+        val_loss_hist.append(val_loss)
+        train_acc_hist.append(train_acc)
+        val_acc_hist.append(val_acc)
+
+    plt.figure()
+    plt.plot(train_loss_hist, label="Train Loss")
+    plt.plot(val_loss_hist, label="Val Loss")
+    plt.title("Loss vs Epoch")
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    plt.plot(train_acc_hist, label="Train Acc")
+    plt.plot(val_acc_hist, label="Val Acc")
+    plt.title("Accuracy vs Epoch")
+    plt.legend()
+    plt.show()
+
+    test_correct = 0
+    test_loss_total = 0
+
+    for i in range(len(X_test)):
+        if hasattr(model, "dropout"):
+            y_hat = model.forward(X_test[i], training=False)
+        else:
+            y_hat = model.forward(X_test[i])
+
+        loss = - (y_test[i]*np.log(y_hat+1e-8) +
+                 (1-y_test[i])*np.log(1-y_hat+1e-8))
+
+        test_loss_total += loss.item()
+
+        if (y_hat >= 0.5) == y_test[i]:
+            test_correct += 1
+
+    test_acc = test_correct / len(X_test)
+    test_loss = test_loss_total / len(X_test)
+
+    print("Final Test Accuracy:", round(test_acc,4))
+    print("Final Test Loss:", round(test_loss,4))
+
     return train_acc, val_acc, test_acc, train_loss, val_loss, test_loss
 
 # cnn with pooling
@@ -642,10 +730,25 @@ res_dropout = train_and_evaluate(cnn_dropout)
 cnn_nodrop = SimpleCNN()
 res_nodrop = train_and_evaluate(cnn_nodrop)
 
+print("Train Accuracy, Validation Accuracy, Test Accuracy, Train Loss, Validation Loss, Test Loss")
 print("\nCNN with Pooling:", res_pool)
 print("CNN without Pooling:", res_nopool)
 print("CNN with Dropout:", res_dropout)
 print("CNN without Dropout:", res_nodrop)
+
+def compute_overfitting(name, res):
+    train_acc, val_acc, test_acc, train_loss, val_loss, test_loss = res
+    acc_gap = train_acc - val_acc
+    loss_gap = val_loss - train_loss
+    print(f"\n{name}-")
+    print("Accuracy Gap   :", round(acc_gap,4))
+    print("Loss Gap       :", round(loss_gap,4))
+
+    return acc_gap, loss_gap
+gap_pool = compute_overfitting("CNN + Pool", res_pool)
+gap_nopool = compute_overfitting("CNN - Pool", res_nopool)
+gap_dropout = compute_overfitting("CNN + Dropout", res_dropout)
+gap_nodrop = compute_overfitting("CNN - No Dropout", res_nodrop)
 
 # PART 3
 
@@ -730,34 +833,123 @@ class Adam_CNN:
                 model.fc.b -= update
 
 def train_with_optimizer(optimizer_class, lr=0.01, epochs=5):
-    model = SimpleCNN()  # best CNN
+
+    model = SimpleCNN()
     optimizer = optimizer_class(lr)
-    loss_history = []
+
+    train_loss_hist = []
+    val_loss_hist   = []
+    train_acc_hist  = []
+    val_acc_hist    = []
+
     for epoch in range(epochs):
+
         total_loss = 0
+        correct = 0
+
         for i in range(len(X_train)):
             X_sample = X_train[i]
             y_sample = y_train[i].reshape(1,1)
+
             y_hat = model.forward(X_sample)
+
             loss = - (y_sample*np.log(y_hat+1e-8) +
                      (1-y_sample)*np.log(1-y_hat+1e-8))
-            total_loss += loss
+
+            total_loss += loss.item()
+
+            if (y_hat >= 0.5) == y_sample:
+                correct += 1
+
             model.backward(y_sample)
             optimizer.step(model)
-        avg_loss = total_loss/len(X_train)
-        loss_history.append(avg_loss)
-        print("Epoch:", epoch, "Loss:", avg_loss)
-    train_acc, train_loss = evaluate_cnn(model, X_train, y_train)
-    val_acc, val_loss = evaluate_cnn(model, X_val, y_val)
+
+        train_loss = total_loss / len(X_train)
+        train_acc  = correct / len(X_train)
+
+        val_correct = 0
+        val_loss_total = 0
+
+        for i in range(len(X_val)):
+            y_hat = model.forward(X_val[i])
+
+            loss = - (y_val[i]*np.log(y_hat+1e-8) +
+                     (1-y_val[i])*np.log(1-y_hat+1e-8))
+
+            val_loss_total += loss.item()
+
+            if (y_hat >= 0.5) == y_val[i]:
+                val_correct += 1
+
+        val_loss = val_loss_total / len(X_val)
+        val_acc  = val_correct / len(X_val)
+
+        train_loss_hist.append(train_loss)
+        val_loss_hist.append(val_loss)
+        train_acc_hist.append(train_acc)
+        val_acc_hist.append(val_acc)
+
+    plt.figure()
+    plt.plot(train_loss_hist, label="Train Loss")
+    plt.plot(val_loss_hist, label="Val Loss")
+    plt.title(f"{optimizer_class.__name__} - Loss")
+    plt.legend()
+    plt.show()
+
+    plt.figure()
+    plt.plot(train_acc_hist, label="Train Acc")
+    plt.plot(val_acc_hist, label="Val Acc")
+    plt.title(f"{optimizer_class.__name__} - Accuracy")
+    plt.legend()
+    plt.show()
+
     test_acc, test_loss = evaluate_cnn(model, X_test, y_test)
-    return model, loss_history, train_acc, val_acc, test_acc, train_loss, val_loss, test_loss
+    test_acc = float(test_acc)
+    test_loss = float(test_loss)
+    print("Final Test Accuracy:", round(test_acc,4))
+    print("Final Test Loss:", round(test_loss,4))
+
+    return model, train_loss_hist, train_acc, val_acc, test_acc, train_loss, val_loss, test_loss
 
 # sgd
-model_sgd, loss_sgd, tr_sgd, val_sgd, te_sgd, _, _, _ = train_with_optimizer(SGD_CNN, lr=0.01)
+model_sgd, loss_sgd, tr_sgd, val_sgd, te_sgd, train_loss_sgd, val_loss_sgd, test_loss_sgd = train_with_optimizer(SGD_CNN, lr=0.01)
 # momentum
-model_mom, loss_mom, tr_mom, val_mom, te_mom, _, _, _ = train_with_optimizer(Momentum_CNN, lr=0.01)
+model_mom, loss_mom, tr_mom, val_mom, te_mom, train_loss_mom, val_loss_mom, test_loss_mom = train_with_optimizer(Momentum_CNN, lr=0.01)
 # adam
-model_adam, loss_adam, tr_adam, val_adam, te_adam, _, _, _ = train_with_optimizer(Adam_CNN, lr=0.01)
+model_adam, loss_adam, tr_adam, val_adam, te_adam, train_loss_adam, val_loss_adam, test_loss_adam = train_with_optimizer(Adam_CNN, lr=0.01)
+
+def print_optimizer_values(name,
+                           train_acc, val_acc, test_acc,
+                           train_loss, val_loss, test_loss,
+                           loss_hist):
+    print(f"\n{name}")
+    print("-"*60)
+    print("Final Train Accuracy :", round(train_acc,4))
+    print("Final Val Accuracy   :", round(val_acc,4))
+    print("Final Test Accuracy  :", round(test_acc,4))
+    print("Final Train Loss     :", round(train_loss,4))
+    print("Final Val Loss       :", round(val_loss,4))
+    print("Final Test Loss      :", round(test_loss,4))
+    print("Convergence Epoch    :", int(np.argmin(loss_hist)))
+    print("Loss Stability (Std) :", round(float(np.std(loss_hist)),6))
+print_optimizer_values(
+    "SGD",
+    tr_sgd, val_sgd, te_sgd,
+    train_loss_sgd, val_loss_sgd, test_loss_sgd,
+    loss_sgd
+)
+print_optimizer_values(
+    "Momentum",
+    tr_mom, val_mom, te_mom,
+    train_loss_mom, val_loss_mom, test_loss_mom,
+    loss_mom
+)
+print_optimizer_values(
+    "Adam",
+    tr_adam, val_adam, te_adam,
+    train_loss_adam, val_loss_adam, test_loss_adam,
+    loss_adam
+)
 
 loss_sgd = np.array(loss_sgd).reshape(-1)
 loss_mom = np.array(loss_mom).reshape(-1)
@@ -771,10 +963,6 @@ plt.xlabel("Epoch")
 plt.ylabel("Loss")
 plt.legend()
 plt.show()
-
-print("\nSGD:", tr_sgd, val_sgd, te_sgd)
-print("Momentum:", tr_mom, val_mom, te_mom)
-print("Adam:", tr_adam, val_adam, te_adam)
 
 # MASTER RESULT TABLE
 print("MASTER RESULT TABLE")
